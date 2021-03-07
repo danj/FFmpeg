@@ -115,6 +115,7 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
           TABLES_ARG
         : "%"FF_REG_c, "memory"
     );
+    c->count++;
     return coeff_count;
 }
 
@@ -201,6 +202,7 @@ static int decode_significance_8x8_x86(CABACContext *c,
           "i"(H264_LAST_COEFF_FLAG_OFFSET_8x8_OFFSET) TABLES_ARG
         : "%"FF_REG_c, "memory"
     );
+    c->count++;
     return coeff_count;
 }
 #endif /* HAVE_7REGS && BROKEN_COMPILER */

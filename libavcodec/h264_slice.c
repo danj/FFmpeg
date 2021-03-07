@@ -47,6 +47,8 @@
 #include "rectangle.h"
 #include "thread.h"
 
+#include "libavcodec/mbs.h"
+
 static const uint8_t field_scan[16+1] = {
     0 + 0 * 4, 0 + 1 * 4, 1 + 0 * 4, 0 + 2 * 4,
     0 + 3 * 4, 1 + 1 * 4, 1 + 2 * 4, 1 + 3 * 4,
@@ -2585,6 +2587,8 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
     if (ret < 0)
         return ret;
 
+    mbs_start_poc(h->poc.poc_lsb + (h->poc.poc_msb & 0x7fff));
+
     sl->mb_skip_run = -1;
 
     av_assert0(h->block_offset[15] == (4 * ((scan8[15] - scan8[0]) & 7) << h->pixel_shift) + 4 * sl->linesize * ((scan8[15] - scan8[0]) >> 3));
@@ -2617,9 +2621,14 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             return ret;
 
         ff_h264_init_cabac_states(h, sl);
+        sl->cabac.count = 0;
 
         for (;;) {
             int ret, eos;
+            int mbs_x = sl->mb_x;
+            int mbs_y = sl->mb_y;
+            int mbs_start = sl->cabac.count;
+            int mbs_delta = 0;
             if (sl->mb_x + sl->mb_y * h->mb_width >= sl->next_slice_idx) {
                 av_log(h->avctx, AV_LOG_ERROR, "Slice overlaps with next at %d\n",
                        sl->next_slice_idx);
@@ -2635,6 +2644,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
+                mbs_add_block_info(sl->mb_x, sl->mb_y, 16, sl->cabac.count - mbs_start, sl->qscale);
+                mbs_start = sl->cabac.count;
+
                 sl->mb_y++;
 
                 ret = ff_h264_decode_mb_cabac(h, sl);
@@ -2643,6 +2655,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                     ff_h264_hl_decode_mb(h, sl);
                 sl->mb_y--;
             }
+
+            mbs_delta = sl->cabac.count - mbs_start;
+            mbs_add_block_info(mbs_x, mbs_y, 16, mbs_delta, sl->qscale);
+
             eos = get_cabac_terminate(&sl->cabac);
 
             if ((h->workaround_bugs & FF_BUG_TRUNCATED) &&
@@ -2662,6 +2678,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                        sl->cabac.bytestream_end - sl->cabac.bytestream);
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x,
                              sl->mb_y, ER_MB_ERROR);
+                mbs_finish_poc();
                 return AVERROR_INVALIDDATA;
             }
 
@@ -2686,16 +2703,23 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                     loop_filter(h, sl, lf_x_start, sl->mb_x);
                 goto finish;
             }
+
+
         }
     } else {
+        long mbs_bits_left = get_bits_left(&sl->gb);
         for (;;) {
             int ret;
+            int mbs_x = sl->mb_x;
+            int mbs_y = sl->mb_y;
+            int mbs_delta = 0;
 
             if (sl->mb_x + sl->mb_y * h->mb_width >= sl->next_slice_idx) {
                 av_log(h->avctx, AV_LOG_ERROR, "Slice overlaps with next at %d\n",
                        sl->next_slice_idx);
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x,
                              sl->mb_y, ER_MB_ERROR);
+                mbs_finish_poc();
                 return AVERROR_INVALIDDATA;
             }
 
@@ -2706,6 +2730,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
+                mbs_delta = mbs_bits_left - get_bits_left(&sl->gb);
+                mbs_add_block_info(mbs_x, mbs_y, 16, mbs_delta, sl->qscale);
+                mbs_bits_left = get_bits_left(&sl->gb);
                 sl->mb_y++;
                 ret = ff_h264_decode_mb_cavlc(h, sl);
 
@@ -2719,8 +2746,13 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                        "error while decoding MB %d %d\n", sl->mb_x, sl->mb_y);
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x,
                              sl->mb_y, ER_MB_ERROR);
+                mbs_finish_poc();
                 return ret;
             }
+
+            mbs_delta = mbs_bits_left - get_bits_left(&sl->gb);
+            mbs_add_block_info(mbs_x, mbs_y, 16, mbs_delta, sl->qscale);
+            mbs_bits_left = get_bits_left(&sl->gb);
 
             if (++sl->mb_x >= h->mb_width) {
                 loop_filter(h, sl, lf_x_start, sl->mb_x);
@@ -2746,6 +2778,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                         er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y,
                                      sl->mb_x, sl->mb_y, ER_MB_END);
 
+                        mbs_finish_poc();
                         return AVERROR_INVALIDDATA;
                     }
                 }
@@ -2766,6 +2799,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                     er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x,
                                  sl->mb_y, ER_MB_ERROR);
 
+                    mbs_finish_poc();
                     return AVERROR_INVALIDDATA;
                 }
             }
@@ -2773,6 +2807,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
     }
 
 finish:
+    mbs_finish_poc();
     sl->deblocking_filter = orig_deblock;
     return 0;
 }

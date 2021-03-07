@@ -179,6 +179,22 @@ static av_always_inline int get_cabac_inline_x86(CABACContext *c,
                                                  uint8_t *const state)
 {
     int bit, tmp;
+
+    //extern uint8_t ff_h264_cabac_tables[512 + 4*2*64 + 4*64 + 63];
+    static uint8_t * const ff_h264_norm_shift = ff_h264_cabac_tables + H264_NORM_SHIFT_OFFSET;
+    static uint8_t * const ff_h264_lps_range = ff_h264_cabac_tables + H264_LPS_RANGE_OFFSET;
+    int s = *state;
+    int RangeLPS= ff_h264_lps_range[2*(c->range&0xC0) + s];
+    int lps_mask;
+    int c_range = c->range;
+    c_range -= RangeLPS;
+    lps_mask= ((c_range<<(CABAC_BITS+1)) - c->low)>>31;
+
+    c_range += (RangeLPS - c_range) & lps_mask;
+
+    lps_mask= ff_h264_norm_shift[c_range];
+    c->count += lps_mask;
+
 #ifdef BROKEN_RELOCATIONS
     void *tables;
 
@@ -253,6 +269,8 @@ static av_always_inline int get_cabac_bypass_sign_x86(CABACContext *c, int val)
           "i"(offsetof(CABACContext, range))
         : "%eax", "%edx", "memory"
     );
+
+    c->count++;
     return val;
 }
 
@@ -293,6 +311,8 @@ static av_always_inline int get_cabac_bypass_x86(CABACContext *c)
           "i"(offsetof(CABACContext, range))
         : "%eax", "%ecx", "memory"
     );
+
+    c->count++;
     return res;
 }
 #endif /* !BROKEN_COMPILER */
