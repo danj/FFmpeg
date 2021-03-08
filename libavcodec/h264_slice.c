@@ -2587,7 +2587,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
     if (ret < 0)
         return ret;
 
-    mbs_start_poc(h->poc.poc_lsb + (h->poc.poc_msb & 0x7fff));
+    mbs_start_poc(h->poc.poc_lsb + (h->poc.poc_msb & 0x7fff), h->width, h->height);
 
     sl->mb_skip_run = -1;
 
@@ -2644,7 +2644,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
-                mbs_add_block_info(sl->mb_x, sl->mb_y, 16, sl->cabac.count - mbs_start, sl->qscale);
+                mbs_add_block_info(sl->mb_x*16, sl->mb_y*16, 16, sl->cabac.count - mbs_start, sl->qscale);
                 mbs_start = sl->cabac.count;
 
                 sl->mb_y++;
@@ -2657,7 +2657,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
 
             mbs_delta = sl->cabac.count - mbs_start;
-            mbs_add_block_info(mbs_x, mbs_y, 16, mbs_delta, sl->qscale);
+            mbs_add_block_info(mbs_x*16, mbs_y*16, 16, mbs_delta, sl->qscale);
 
             eos = get_cabac_terminate(&sl->cabac);
 
@@ -2731,7 +2731,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 mbs_delta = mbs_bits_left - get_bits_left(&sl->gb);
-                mbs_add_block_info(mbs_x, mbs_y, 16, mbs_delta, sl->qscale);
+                mbs_add_block_info(mbs_x*16, mbs_y*16, 16, mbs_delta, sl->qscale);
                 mbs_bits_left = get_bits_left(&sl->gb);
                 sl->mb_y++;
                 ret = ff_h264_decode_mb_cavlc(h, sl);
@@ -2751,7 +2751,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
 
             mbs_delta = mbs_bits_left - get_bits_left(&sl->gb);
-            mbs_add_block_info(mbs_x, mbs_y, 16, mbs_delta, sl->qscale);
+            mbs_add_block_info(mbs_x*16, mbs_y*16, 16, mbs_delta, sl->qscale);
             mbs_bits_left = get_bits_left(&sl->gb);
 
             if (++sl->mb_x >= h->mb_width) {
