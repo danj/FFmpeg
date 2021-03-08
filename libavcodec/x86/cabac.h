@@ -181,8 +181,8 @@ static av_always_inline int get_cabac_inline_x86(CABACContext *c,
     int bit, tmp;
 
     //extern uint8_t ff_h264_cabac_tables[512 + 4*2*64 + 4*64 + 63];
-    static uint8_t * const ff_h264_norm_shift = ff_h264_cabac_tables + H264_NORM_SHIFT_OFFSET;
-    static uint8_t * const ff_h264_lps_range = ff_h264_cabac_tables + H264_LPS_RANGE_OFFSET;
+    static const uint8_t * ff_h264_norm_shift = ff_h264_cabac_tables + H264_NORM_SHIFT_OFFSET;
+    static const uint8_t * ff_h264_lps_range = ff_h264_cabac_tables + H264_LPS_RANGE_OFFSET;
     int s = *state;
     int RangeLPS= ff_h264_lps_range[2*(c->range&0xC0) + s];
     int lps_mask;

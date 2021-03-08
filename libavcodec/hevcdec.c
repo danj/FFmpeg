@@ -44,7 +44,7 @@
 #include "hwconfig.h"
 #include "profiles.h"
 
-#include "libavcodec/mbs.h"
+#include "libavcodec/complexity.h"
 
 const uint8_t ff_hevc_pel_weight[65] = { [2] = 0, [4] = 1, [6] = 2, [8] = 3, [12] = 4, [16] = 5, [24] = 6, [32] = 7, [48] = 8, [64] = 9 };
 
@@ -2288,11 +2288,11 @@ static int hls_coding_quadtree(HEVCContext *s, int x0, int y0,
     const int cb_size    = 1 << log2_cb_size;
     int ret;
     int split_cu;
-    int mbs_start = 0;
-    int mbs_delta = 0;
+    int complexity_start = 0;
+    int complexity_delta = 0;
 
     lc->ct_depth = cb_depth;
-    mbs_start = s->HEVClc->cc.count;
+    complexity_start = s->HEVClc->cc.count;
 
     if (x0 + cb_size <= s->ps.sps->width  &&
         y0 + cb_size <= s->ps.sps->height &&
@@ -2353,8 +2353,8 @@ static int hls_coding_quadtree(HEVCContext *s, int x0, int y0,
     } else {
         ret = hls_coding_unit(s, x0, y0, log2_cb_size);
 
-        mbs_delta = s->HEVClc->cc.count - mbs_start;
-        mbs_add_cu_info(x0, y0, cb_size, mbs_delta, s->HEVClc->qp_y);
+        complexity_delta = s->HEVClc->cc.count - complexity_start;
+        complexity_add_cu_info(x0, y0, cb_size, complexity_delta, s->HEVClc->qp_y);
 
         if (ret < 0)
             return ret;
@@ -2431,8 +2431,8 @@ static int hls_decode_entry(AVCodecContext *avctxt, void *isFilterThread)
     int x_ctb       = 0;
     int y_ctb       = 0;
     int ctb_addr_ts = s->ps.pps->ctb_addr_rs_to_ts[s->sh.slice_ctb_addr_rs];
-    int mbs_start   = 0;
-    int mbs_delta   = 0;
+    int complexity_start   = 0;
+    int complexity_delta   = 0;
     int ret;
 
     if (!ctb_addr_ts && s->sh.dependent_slice_segment_flag) {
@@ -2451,13 +2451,13 @@ static int hls_decode_entry(AVCodecContext *avctxt, void *isFilterThread)
     s->HEVClc->cc.count = 0;
     while (more_data && ctb_addr_ts < s->ps.sps->ctb_size) {
         int ctb_addr_rs = s->ps.pps->ctb_addr_ts_to_rs[ctb_addr_ts];
-        mbs_start = s->HEVClc->cc.count;
+        complexity_start = s->HEVClc->cc.count;
 
         x_ctb = (ctb_addr_rs % ((s->ps.sps->width + ctb_size - 1) >> s->ps.sps->log2_ctb_size)) << s->ps.sps->log2_ctb_size;
         y_ctb = (ctb_addr_rs / ((s->ps.sps->width + ctb_size - 1) >> s->ps.sps->log2_ctb_size)) << s->ps.sps->log2_ctb_size;
 
         if (x_ctb == 0 && y_ctb == 0) { //start of new picture
-            mbs_start_poc(s->poc, s->ps.sps->width, s->ps.sps->height);
+            complexity_start_picture(s->poc, s->ps.sps->width, s->ps.sps->height);
         }
         hls_decode_neighbour(s, x_ctb, y_ctb, ctb_addr_ts);
 
@@ -2479,8 +2479,8 @@ static int hls_decode_entry(AVCodecContext *avctxt, void *isFilterThread)
             return more_data;
         }
 
-        mbs_delta = s->HEVClc->cc.count - mbs_start;
-        mbs_add_ctb_info(ctb_addr_ts, x_ctb, y_ctb, ctb_size, mbs_delta, s->HEVClc->qp_y);
+        complexity_delta = s->HEVClc->cc.count - complexity_start;
+        complexity_add_ctb_info(ctb_addr_ts, x_ctb, y_ctb, ctb_size, complexity_delta, s->HEVClc->qp_y);
 
         ctb_addr_ts++;
         ff_hevc_save_states(s, ctb_addr_ts);
@@ -2490,7 +2490,7 @@ static int hls_decode_entry(AVCodecContext *avctxt, void *isFilterThread)
     if (x_ctb + ctb_size >= s->ps.sps->width &&
         y_ctb + ctb_size >= s->ps.sps->height) {
         ff_hevc_hls_filter(s, x_ctb, y_ctb, ctb_size);
-        mbs_finish_poc();
+        complexity_finish_poc();
     }
 
     return ctb_addr_ts;
